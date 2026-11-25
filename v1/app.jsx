@@ -11,7 +11,6 @@ const ALL_CATEGORIES = [
   { id: "livepoker",  label: "Live poker"            },
   { id: "racecourse", label: "Racecourse"            },
   { id: "lottery",    label: "Lottery/scratchcards"  },
-  { id: "other",      label: "Other"                 },
 ];
 
 const TRIGGERS_EMOTIONAL = [
@@ -73,7 +72,7 @@ const ALL_BOOKMAKERS = [
   { id:"betmgm",      label:"BetMGM"       },
 ];
 
-const DEFAULT_PROFILE = { onboarded:false, startDate:null, cats:[], rates:{}, bookies:[], focus:null };
+const DEFAULT_PROFILE = { onboarded:false, startDate:null, cats:[], customCats:[], savingsMode:"category", rates:{}, totalRate:"", bookies:[], focus:null };
 function loadProfile() {
   try { const r = localStorage.getItem(PROFILE_KEY); return r ? { ...DEFAULT_PROFILE, ...JSON.parse(r) } : DEFAULT_PROFILE; }
   catch { return DEFAULT_PROFILE; }
@@ -165,6 +164,9 @@ const NAV_ITEMS = [
 
 function App() {
   const [profile, setProfile]       = useState(loadProfile);
+  const [addingCat, setAddingCat]   = useState(false);
+  const [newCatName, setNewCatName] = useState("");
+  const [resetStep, setResetStep]   = useState(0);
   const [logs, setLogs]             = useState(loadData);
   const [accounts, setAccounts]     = useState(loadAccounts);
   const [tab, setTab]               = useState("dashboard");
@@ -178,10 +180,13 @@ function App() {
 
   const START_DATE     = profile.startDate || TODAY;
   const ACCOUNTS_START = START_DATE.slice(0,7);
-  const CATEGORIES     = ALL_CATEGORIES.filter(c => profile.cats.includes(c.id));
+  const allCats        = [...ALL_CATEGORIES, ...(profile.customCats || [])];
+  const CATEGORIES     = allCats.filter(c => profile.cats.includes(c.id));
   const BOOKMAKERS     = ALL_BOOKMAKERS.filter(b => profile.bookies.includes(b.id));
-  const focusId        = CATEGORIES.some(c => c.id === profile.focus) ? profile.focus : (CATEGORIES[0] ? CATEGORIES[0].id : null);
-  const rateOf = (id) => { const n = parseFloat(profile.rates && profile.rates[id]); return n > 0 ? n : 0; };
+  const focusId        = CATEGORIES.some(c => c.id === profile.focus) ? profile.focus : null;
+  const savingsMode    = profile.savingsMode || "off";
+  const totalRateVal   = (() => { const n = parseFloat(profile.totalRate); return n > 0 ? n : 0; })();
+  const rateOf = (id) => { if (savingsMode !== "category") return 0; const n = parseFloat(profile.rates && profile.rates[id]); return n > 0 ? n : 0; };
   const toggleIn = (arr, id) => arr.includes(id) ? arr.filter(x => x !== id) : [...arr, id];
 
   const [viewMonth, setViewMonth]           = useState(startOfMonthKey(TODAY).slice(0,7));
@@ -245,6 +250,23 @@ function App() {
     return Math.max(pb, cur, INITIAL_PB);
   }
 
+  function anyBet(d) { const l = logs[d]; return !!(l && l.cats && l.cats.length > 0); }
+  function overallStreak() {
+    let s = 0, d = TODAY;
+    while (d >= START_DATE) { if (anyBet(d)) break; s++; d = addDays(d,-1); }
+    return s;
+  }
+  function overallPB() {
+    let pb = INITIAL_PB, cur = 0, d = START_DATE;
+    while (d <= TODAY) { if (anyBet(d)) { pb = Math.max(pb,cur); cur = 0; } else cur++; d = addDays(d,1); }
+    return Math.max(pb, cur, INITIAL_PB);
+  }
+  function freeDaysAny(from, to) {
+    let n = 0, d = from > START_DATE ? from : START_DATE;
+    while (d <= to && d <= TODAY) { if (!anyBet(d)) n++; d = addDays(d,1); }
+    return n;
+  }
+
   function periodStats(from, to) {
     let gfds=0, gambled=0, urges=0, urgeScore=0, strong=0, moderate=0, minor=0;
     const catsUsed = new Set();
@@ -278,7 +300,31 @@ function App() {
     return free * rate;
   }
   function totalSavings(from, to) {
-    return CATEGORIES.filter(c=>rateOf(c.id)).reduce((s,cat)=>s+(catSavings(cat.id,from,to)||0),0);
+    if (savingsMode === "total") return totalRateVal * freeDaysAny(from, to);
+    if (savingsMode === "category") return CATEGORIES.filter(c=>rateOf(c.id)).reduce((s,cat)=>s+(catSavings(cat.id,from,to)||0),0);
+    return 0;
+  }
+  function doReset() {
+    setLogs({}); setAccounts({});
+    setProfile({ ...DEFAULT_PROFILE, cats:[], customCats:[], rates:{}, bookies:[] });
+    setResetStep(0); setAddingCat(false); setNewCatName("");
+    setTab("dashboard"); setTrackDate(todayKey());
+  }
+  function addCustomCat() {
+    const name = newCatName.trim().slice(0,24);
+    if (!name) return;
+    const slug = name.toLowerCase().replace(/[^a-z0-9]+/g,"_").replace(/^_|_$/g,"") || "x";
+    const id = "c_" + slug;
+    const existing = allCats.find(c => c.id === id || c.label.toLowerCase() === name.toLowerCase());
+    setProfile(p => {
+      if (existing) return { ...p, cats: p.cats.includes(existing.id) ? p.cats : [...p.cats, existing.id] };
+      return { ...p, customCats:[...(p.customCats||[]), { id, label:name }], cats:[...p.cats, id] };
+    });
+    setNewCatName(""); setAddingCat(false);
+  }
+  function removeCustomCat(id) {
+    setProfile(p => ({ ...p, customCats:(p.customCats||[]).filter(c=>c.id!==id),
+      cats:p.cats.filter(x=>x!==id), focus: p.focus===id ? null : p.focus }));
   }
   function fmt(n) {
     const dp = (n < 100 && Math.round(n*100)%100 !== 0) ? 2 : 0;
@@ -364,16 +410,19 @@ function App() {
 
   // ── PROFILE EDITOR (called as a function so inputs keep focus) ─────────────
   function renderProfileEditor() {
-    const sel = ALL_CATEGORIES.filter(c => profile.cats.includes(c.id));
+    const sel = CATEGORIES;
     const chip = (active) => ({ padding:"10px 12px", borderRadius:10,
       border:`1px solid ${active?C.accent:C.border}`,
       background:active?C.accentDim:C.card, color:active?C.text:C.muted2,
       fontSize:12, fontWeight:active?600:400, cursor:"pointer", textAlign:"left" });
     const hint = { fontSize:10, color:C.muted, marginBottom:10, lineHeight:1.5 };
+    const numInput = { width:84, padding:"8px 10px", background:C.card, color:C.text,
+      border:`1px solid ${C.border}`, borderRadius:8, fontSize:13, fontFamily:"inherit", outline:"none" };
+    const mode = savingsMode;
     return (
       <>
         <div style={base.label}>What do you gamble on?</div>
-        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:7, marginBottom:18 }}>
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:7, marginBottom:addingCat?10:18 }}>
           {ALL_CATEGORIES.map(c => {
             const active = profile.cats.includes(c.id);
             return (
@@ -383,12 +432,69 @@ function App() {
               </button>
             );
           })}
+          {(profile.customCats || []).map(c => {
+            const active = profile.cats.includes(c.id);
+            return (
+              <div key={c.id} style={{ display:"flex" }}>
+                <button style={{ ...chip(active), flex:1, borderRadius:"10px 0 0 10px", minWidth:0 }}
+                  onClick={()=>setProfile(p=>({ ...p, cats: toggleIn(p.cats, c.id) }))}>
+                  {c.label}
+                </button>
+                <button title="Remove" onClick={()=>removeCustomCat(c.id)}
+                  style={{ padding:"0 9px", border:`1px solid ${active?C.accent:C.border}`, borderLeft:"none",
+                    background:active?C.accentDim:C.card, color:C.muted, borderRadius:"0 10px 10px 0",
+                    cursor:"pointer", fontSize:12 }}>✕</button>
+              </div>
+            );
+          })}
+          <button onClick={()=>setAddingCat(v=>!v)}
+            style={{ ...chip(false), border:`1px dashed ${C.muted}`, color:C.muted2 }}>
+            + Add your own
+          </button>
         </div>
+        {addingCat && (
+          <div style={{ display:"flex", gap:8, marginBottom:18 }}>
+            <input type="text" maxLength={24} value={newCatName}
+              onChange={e=>setNewCatName(e.target.value)}
+              onKeyDown={e=>{ if (e.key==="Enter") addCustomCat(); }}
+              placeholder="e.g. Spread betting"
+              style={{ flex:1, padding:"9px 12px", background:C.card, color:C.text,
+                border:`1px solid ${C.border}`, borderRadius:8, fontSize:13,
+                fontFamily:"inherit", outline:"none" }}/>
+            <button onClick={addCustomCat}
+              style={{ padding:"0 14px", borderRadius:8, border:"none", background:C.accent,
+                color:"#fff", fontSize:12, fontWeight:700, cursor:"pointer" }}>Add</button>
+          </div>
+        )}
 
-        {sel.length > 0 && (
+        {sel.length > 1 && (
           <>
-            <div style={base.label}>Your daily amount</div>
-            <div style={hint}>Roughly what you would spend on each per day. Every day without a bet adds it to your Saved total. Optional.</div>
+            <div style={base.label}>Is there one category that's a bigger focus for you?</div>
+            <div style={hint}>If so, it gets the big streak card on your dashboard. If not, you'll see your overall gambling-free streak.</div>
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:7, marginBottom:18 }}>
+              {sel.map(c => (
+                <button key={c.id} style={chip(focusId === c.id)}
+                  onClick={()=>setProfile(p=>({ ...p, focus:c.id }))}>
+                  {c.label}
+                </button>
+              ))}
+              <button style={chip(!focusId)} onClick={()=>setProfile(p=>({ ...p, focus:null }))}>
+                No single focus
+              </button>
+            </div>
+          </>
+        )}
+
+        <div style={base.label}>Do you want to set up the saving function?</div>
+        <div style={hint}>It shows how much you save each day by not betting. It can be one total figure or broken down by category.</div>
+        <div style={{ display:"grid", gridTemplateColumns:"1fr", gap:7, marginBottom:12 }}>
+          {[["category","Yes, broken down by category"],["total","Yes, one total figure"],["off","No, skip this"]].map(([v,l])=>(
+            <button key={v} style={chip(mode===v)} onClick={()=>setProfile(p=>({ ...p, savingsMode:v }))}>{l}</button>
+          ))}
+        </div>
+        {mode === "category" && sel.length > 0 && (
+          <>
+            <div style={hint}>Roughly what you would spend on each per day. Each day without a bet in that category adds it to your saved total. Leave blank to skip one.</div>
             <div style={{ marginBottom:18 }}>
               {sel.map(c => (
                 <div key={c.id} style={{ display:"flex", alignItems:"center", gap:8, marginBottom:8 }}>
@@ -397,28 +503,24 @@ function App() {
                   <input type="number" inputMode="decimal" min="0" step="0.01"
                     value={(profile.rates && profile.rates[c.id] != null) ? profile.rates[c.id] : ""}
                     onChange={e=>{ const v = e.target.value; setProfile(p=>({ ...p, rates:{ ...p.rates, [c.id]: v } })); }}
-                    placeholder="0"
-                    style={{ width:84, padding:"8px 10px", background:C.card, color:C.text,
-                      border:`1px solid ${C.border}`, borderRadius:8, fontSize:13,
-                      fontFamily:"inherit", outline:"none" }}/>
+                    placeholder="0" style={numInput}/>
                   <span style={{ fontSize:10, color:C.muted }}>/day</span>
                 </div>
               ))}
             </div>
           </>
         )}
-
-        {sel.length > 1 && (
+        {mode === "total" && (
           <>
-            <div style={base.label}>Main focus</div>
-            <div style={hint}>Shown at the top of your dashboard.</div>
-            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:7, marginBottom:18 }}>
-              {sel.map(c => (
-                <button key={c.id} style={chip(focusId === c.id)}
-                  onClick={()=>setProfile(p=>({ ...p, focus:c.id }))}>
-                  {c.label}
-                </button>
-              ))}
+            <div style={hint}>One daily amount. It counts only on days with no bet in any category.</div>
+            <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:18 }}>
+              <div style={{ flex:1, fontSize:12, color:C.text }}>Total per day</div>
+              <span style={{ fontSize:13, color:C.muted2 }}>£</span>
+              <input type="number" inputMode="decimal" min="0" step="0.01"
+                value={profile.totalRate != null ? profile.totalRate : ""}
+                onChange={e=>{ const v = e.target.value; setProfile(p=>({ ...p, totalRate:v })); }}
+                placeholder="0" style={numInput}/>
+              <span style={{ fontSize:10, color:C.muted }}>/day</span>
             </div>
           </>
         )}
@@ -436,6 +538,12 @@ function App() {
             );
           })}
         </div>
+
+        <div style={base.label}>Start date</div>
+        <div style={hint}>Tracking counts from this date. Choose an earlier date to enter past days, for example to try the app out. Days you don't log count as days without a bet.</div>
+        <input type="date" max={TODAY} value={profile.startDate || TODAY}
+          onChange={e=>{ const v = e.target.value; if (v && v <= TODAY) setProfile(p=>({ ...p, startDate:v })); }}
+          style={{ ...numInput, width:"100%", colorScheme:"dark", marginBottom:18 }}/>
       </>
     );
   }
@@ -455,8 +563,8 @@ function App() {
           </div>
           {renderProfileEditor()}
           <button disabled={!canStart}
-            onClick={()=>setProfile(p=>({ ...p, onboarded:true, startDate:todayKey(),
-              focus: p.cats.includes(p.focus) ? p.focus : p.cats[0] }))}
+            onClick={()=>setProfile(p=>({ ...p, onboarded:true, startDate:p.startDate||todayKey(),
+              focus: p.cats.includes(p.focus) ? p.focus : null }))}
             style={{ width:"100%", padding:13, borderRadius:12, border:"none",
               background:canStart?C.accent:C.border, color:canStart?"#fff":C.muted,
               fontSize:13, fontWeight:700, cursor:canStart?"pointer":"default" }}>
@@ -475,14 +583,21 @@ function App() {
   // ── DASHBOARD ─────────────────────────────────────────────────────────────
   const DashboardTab = () => {
     const heroCat   = CATEGORIES.find(c=>c.id===focusId);
-    const heroRate  = heroCat ? rateOf(heroCat.id) : 0;
-    const heroSaved = (days) => heroRate ? fmt(days*heroRate) : "–";
-    const ohfStreak = focusId ? catStreak(focusId) : 0;
-    const ohfPB     = focusId ? catPB(focusId) : INITIAL_PB;
-    const perDay    = CATEGORIES.reduce((t,c)=>t+rateOf(c.id),0);
+    const heroLabel = heroCat ? heroCat.label : "All gambling";
+    const heroSavedFor = (from, to, days) => {
+      if (savingsMode === "off") return null;
+      if (heroCat) { const r = rateOf(heroCat.id); return r ? fmt(days*r) : null; }
+      const t = totalSavings(from, to);
+      return t > 0 ? fmt(t) : null;
+    };
+    const ohfStreak = focusId ? catStreak(focusId) : overallStreak();
+    const ohfPB     = focusId ? catPB(focusId) : overallPB();
+    const perDay    = savingsMode === "total" ? totalRateVal : CATEGORIES.reduce((t,c)=>t+rateOf(c.id),0);
     const savedAll  = totalSavings(START_DATE, TODAY);
     const todayLog  = logs[TODAY];
-    const savedToday = CATEGORIES.reduce((t,c)=>t+((todayLog&&todayLog.cats&&todayLog.cats.includes(c.id))?0:rateOf(c.id)),0);
+    const savedToday = savingsMode === "total"
+      ? (anyBet(TODAY) ? 0 : totalRateVal)
+      : CATEGORIES.reduce((t,c)=>t+((todayLog&&todayLog.cats&&todayLog.cats.includes(c.id))?0:rateOf(c.id)),0);
     const ohfPct    = Math.min((ohfStreak/ohfPB)*100,100);
     const ohfCol    = ohfStreak===0?C.red:ohfStreak>=ohfPB?C.gold:C.green;
 
@@ -490,7 +605,7 @@ function App() {
       let free=0, d=from>START_DATE?from:START_DATE;
       while (d<=to && d<=TODAY) {
         const log=logs[d];
-        if (!log||!log.cats||!log.cats.includes(focusId)) free++;
+        if (focusId ? (!log||!log.cats||!log.cats.includes(focusId)) : !anyBet(d)) free++;
         d=addDays(d,1);
       }
       return free;
@@ -511,6 +626,7 @@ function App() {
         <div style={base.section}>
 
           {/* Saved reminder */}
+          {savingsMode !== "off" && (
           <div style={{ background:C.card, border:`1px solid ${C.gold}40`,
             borderRadius:14, padding:"12px 16px", marginBottom:14 }}>
             {perDay > 0 ? (
@@ -532,13 +648,14 @@ function App() {
               </div>
             )}
           </div>
+          )}
 
           {/* Focus hero */}
           <div style={{ background:"#0d1f14", border:`1px solid ${C.green}40`,
             borderRadius:14, padding:"14px 16px", marginBottom:14 }}>
             <div style={{ fontSize:11, fontWeight:700, color:C.green,
               textTransform:"uppercase", letterSpacing:"0.8px", marginBottom:12 }}>
-              {heroCat ? heroCat.label : ""}
+              {heroLabel}
             </div>
             <div style={{ display:"flex", alignItems:"flex-end", gap:8, marginBottom:10 }}>
               <div style={{ fontSize:52, fontWeight:800, color:ohfCol,
@@ -558,17 +675,21 @@ function App() {
             </div>
             <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:6 }}>
               {[
-                { label:"Last 7 days", free:ohfFree7, saved:heroSaved(ohfFree7) },
-                { label:"This month",  free:ohfFreeM, saved:heroSaved(ohfFreeM) },
-                { label:"Year to date",free:ohfFreeY, saved:heroSaved(ohfFreeY) },
+                { label:"Last 7 days", free:ohfFree7, saved:heroSavedFor(addDays(TODAY,-6),TODAY,ohfFree7) },
+                { label:"This month",  free:ohfFreeM, saved:heroSavedFor(monthStart,TODAY,ohfFreeM) },
+                { label:"Year to date",free:ohfFreeY, saved:heroSavedFor(yearStart,TODAY,ohfFreeY) },
               ].map(p=>(
                 <div key={p.label} style={{ background:"#0a1a0f", borderRadius:10,
                   padding:"9px 8px", textAlign:"center" }}>
                   <div style={{ fontSize:9, color:C.muted, marginBottom:5, lineHeight:1.3 }}>{p.label}</div>
                   <div style={{ fontSize:18, fontWeight:800, color:C.green,
                     letterSpacing:"-0.5px" }}>{p.free}d</div>
-                  <div style={{ fontSize:11, fontWeight:700, color:C.gold, marginTop:3 }}>{p.saved}</div>
-                  <div style={{ fontSize:8, color:C.muted, marginTop:1 }}>saved</div>
+                  {p.saved && (
+                    <>
+                      <div style={{ fontSize:11, fontWeight:700, color:C.gold, marginTop:3 }}>{p.saved}</div>
+                      <div style={{ fontSize:8, color:C.muted, marginTop:1 }}>saved</div>
+                    </>
+                  )}
                 </div>
               ))}
             </div>
@@ -1194,11 +1315,11 @@ function App() {
     return (
       <>
         <div style={base.header}>
-          <div style={base.hTitle}>Savings</div>
-          <div style={base.hSub}>Days without a bet × your daily amounts</div>
+          <div style={base.hTitle}>{savingsMode==="off" ? "Settings" : "Saved"}</div>
+          {savingsMode!=="off" && <div style={base.hSub}>{savingsMode==="total" ? "Gambling-free days × your daily amount" : "Days without a bet × your daily amounts"}</div>}
         </div>
         <div style={base.section}>
-          {periods.map(p=>{
+          {savingsMode !== "off" && periods.map(p=>{
             const total = totalSavings(p.from, p.to);
             return (
               <div key={p.label} style={{ marginBottom:18 }}>
@@ -1225,9 +1346,13 @@ function App() {
               </div>
             );
           })}
-          <div style={{ fontSize:10, color:C.muted, lineHeight:1.6, marginTop:4 }}>
-            Saved = days without a bet × the daily amount you set for each type. Changing an amount updates the whole history.
-          </div>
+          {savingsMode !== "off" && (
+            <div style={{ fontSize:10, color:C.muted, lineHeight:1.6, marginTop:4 }}>
+              {savingsMode==="total"
+                ? "Saved = days with no bet in any category × your daily amount. Changing the amount updates the whole history."
+                : "Each category saves its own amount on days with no bet in that category. Changing an amount updates the whole history."}
+            </div>
+          )}
           <button onClick={()=>{
             const data = JSON.stringify({ app:"aware-v1", exported:TODAY, profile, logs, accounts }, null, 2);
             const blob = new Blob([data], {type:"application/json"});
@@ -1247,6 +1372,35 @@ function App() {
             Changes apply straight away. Past logs are kept.
           </div>
           {renderProfileEditor()}
+
+          <div style={{ height:1, background:C.border, margin:"6px 0 16px" }}/>
+          <div style={base.label}>Reset</div>
+          {resetStep === 0 && (
+            <button onClick={()=>setResetStep(1)}
+              style={{ width:"100%", padding:12, borderRadius:12, border:`1px solid ${C.red}80`,
+                background:"transparent", color:C.red, fontSize:13, fontWeight:600, cursor:"pointer" }}>
+              Reset all data…
+            </button>
+          )}
+          {resetStep === 1 && (
+            <div style={{ border:`1px solid ${C.red}`, background:"#450a0a", borderRadius:12, padding:14 }}>
+              <div style={{ fontSize:12, color:C.text, lineHeight:1.5, marginBottom:12 }}>
+                This permanently deletes every entry, your settings and your accounts on this device. It can't be undone. Export a backup first if you might want it.
+              </div>
+              <div style={{ display:"flex", gap:8 }}>
+                <button onClick={()=>setResetStep(0)}
+                  style={{ flex:1, padding:11, borderRadius:10, border:`1px solid ${C.border}`,
+                    background:C.card, color:C.muted2, fontSize:12, fontWeight:600, cursor:"pointer" }}>
+                  Cancel
+                </button>
+                <button onClick={doReset}
+                  style={{ flex:1, padding:11, borderRadius:10, border:"none",
+                    background:C.red, color:"#fff", fontSize:12, fontWeight:700, cursor:"pointer" }}>
+                  Yes, delete everything
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </>
     );
@@ -1261,13 +1415,16 @@ function App() {
       {tab==="accounts"  && <AccountsTab/>}
       {tab==="savings"   && SavingsTab()}
       <nav style={base.nav}>
-        {NAV_ITEMS.map(({id,label,icon})=>(
+        {NAV_ITEMS.map(({id,label,icon})=>{
+          const off = id==="savings" && savingsMode==="off";
+          return (
           <button key={id} style={base.navBtn(tab===id)}
             onClick={()=>{ if(id==="track") setTrackDate(todayKey()); setTab(id); }}>
-            <span style={base.navIcon}>{icon}</span>
-            {label}
+            <span style={base.navIcon}>{off ? "⚙" : icon}</span>
+            {off ? "Settings" : label}
           </button>
-        ))}
+          );
+        })}
       </nav>
     </div>
   );
