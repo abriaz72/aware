@@ -167,6 +167,7 @@ function App() {
   const [addingCat, setAddingCat]   = useState(false);
   const [newCatName, setNewCatName] = useState("");
   const [resetStep, setResetStep]   = useState(0);
+  const [backfill, setBackfill]     = useState(false);
   const [logs, setLogs]             = useState(loadData);
   const [accounts, setAccounts]     = useState(loadAccounts);
   const [tab, setTab]               = useState("dashboard");
@@ -563,8 +564,12 @@ function App() {
           </div>
           {renderProfileEditor()}
           <button disabled={!canStart}
-            onClick={()=>setProfile(p=>({ ...p, onboarded:true, startDate:p.startDate||todayKey(),
-              focus: p.cats.includes(p.focus) ? p.focus : null }))}
+            onClick={()=>{
+              const sd = profile.startDate || todayKey();
+              setProfile(p=>({ ...p, onboarded:true, startDate:sd,
+                focus: p.cats.includes(p.focus) ? p.focus : null }));
+              if (sd < todayKey()) { setBackfill(true); setTrackDate(sd); setTab("track"); }
+            }}
             style={{ width:"100%", padding:13, borderRadius:12, border:"none",
               background:canStart?C.accent:C.border, color:canStart?"#fff":C.muted,
               fontSize:13, fontWeight:700, cursor:canStart?"pointer":"default" }}>
@@ -1371,6 +1376,14 @@ function App() {
           <div style={{ fontSize:10, color:C.muted, marginBottom:14, lineHeight:1.5 }}>
             Changes apply straight away. Past logs are kept.
           </div>
+          {START_DATE < TODAY && (
+            <button onClick={()=>{ setBackfill(true); setTrackDate(START_DATE); setTab("track"); }}
+              style={{ width:"100%", padding:12, borderRadius:12, border:`1px solid ${C.accent}`,
+                background:C.accentDim, color:C.text, fontSize:13, fontWeight:600,
+                cursor:"pointer", marginBottom:18 }}>
+              Fill in past days, step by step
+            </button>
+          )}
           {renderProfileEditor()}
 
           <div style={{ height:1, background:C.border, margin:"6px 0 16px" }}/>
@@ -1406,14 +1419,45 @@ function App() {
     );
   };
 
+  const yesterday  = addDays(TODAY,-1);
+  const bfTotal    = Math.max(0, Math.round((parseDate(yesterday) - parseDate(START_DATE)) / 86400000) + 1);
+  const bfIdx      = Math.max(0, Math.round((parseDate(trackDate) - parseDate(START_DATE)) / 86400000));
+  const bfLast     = trackDate >= yesterday;
+  function bfFinish() { setBackfill(false); setTrackDate(todayKey()); setTab("dashboard"); }
+
   return (
-    <div style={base.app}>
+    <div style={{ ...base.app, paddingBottom: backfill ? 150 : 80 }}>
       {tab==="dashboard" && <DashboardTab/>}
       {tab==="track"     && <TrackTab/>}
       {tab==="progress"  && <ProgressTab/>}
       {tab==="history"   && <HistoryTab/>}
       {tab==="accounts"  && <AccountsTab/>}
       {tab==="savings"   && SavingsTab()}
+      {backfill ? (
+        <div style={{ ...base.nav, flexDirection:"column", padding:"10px 16px 14px", gap:8 }}>
+          <div style={{ fontSize:11, color:C.muted2, textAlign:"center" }}>
+            Filling in past days · day {Math.min(bfIdx+1, bfTotal)} of {bfTotal}
+          </div>
+          <div style={{ display:"flex", gap:8 }}>
+            {trackDate > START_DATE && (
+              <button onClick={()=>setTrackDate(addDays(trackDate,-1))}
+                style={{ flex:1, padding:12, borderRadius:12, border:`1px solid ${C.border}`,
+                  background:C.card, color:C.muted2, fontSize:13, fontWeight:600, cursor:"pointer" }}>
+                ← Previous
+              </button>
+            )}
+            <button onClick={()=>{ if (bfLast) bfFinish(); else setTrackDate(addDays(trackDate,1)); }}
+              style={{ flex:1, padding:12, borderRadius:12, border:"none",
+                background:C.accent, color:"#fff", fontSize:13, fontWeight:700, cursor:"pointer" }}>
+              {bfLast ? "Finish →" : "Next day →"}
+            </button>
+          </div>
+          <button onClick={bfFinish}
+            style={{ background:"none", border:"none", color:C.muted, fontSize:11, cursor:"pointer" }}>
+            Skip for now
+          </button>
+        </div>
+      ) : (
       <nav style={base.nav}>
         {NAV_ITEMS.map(({id,label,icon})=>{
           const off = id==="savings" && savingsMode==="off";
@@ -1426,6 +1470,7 @@ function App() {
           );
         })}
       </nav>
+      )}
     </div>
   );
 }
