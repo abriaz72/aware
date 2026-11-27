@@ -68,8 +68,8 @@ const STOPPER_GROUPS = [
   { id:"mindset", label:"Mindset", items:[
     { id:"streak",      label:"Keep the streak" },
     { id:"accountable", label:"Accountability" },
-    { id:"finreal",     label:"Lifetime losses" },
-    { id:"lifetloss",   label:"Losing bettor reminder" },
+    { id:"finreal",     label:"Watching my finances" },
+    { id:"lifetloss",   label:"Lifetime losses" },
     { id:"dontreally",  label:"No real desire to bet" },
     { id:"notgoodbet",  label:"Odds not appealing" },
     { id:"gamblor",     label:"Recognised gambler voice" },
