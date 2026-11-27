@@ -57,19 +57,26 @@ const TRIGGER_GROUPS = [
   ]},
 ];
 
-const STOPPERS = [
-  { id: "streak",      label: "Streak"                    },
-  { id: "notgoodbet",  label: "Not a strong enough bet"   },
-  { id: "busy",        label: "Busy"                      },
-  { id: "accountable", label: "Accountability"            },
-  { id: "finreal",     label: "Financial reality"         },
-  { id: "lifetloss",   label: "Lifetime losses"           },
-  { id: "walkedaway",  label: "Walked away"               },
-  { id: "timeran",     label: "Time ran out"              },
-  { id: "calledsomeo", label: "Called someone"            },
-  { id: "dontreally",  label: "Don't really want to bet"  },
-  { id: "gamblor",     label: "Recognised the gambler's voice"                   },
-  { id: "flyingblind", label: "No research"              },
+const STOPPER_GROUPS = [
+  { id:"circumstances", label:"Circumstances", items:[
+    { id:"busy",      label:"Busy" },
+    { id:"eventover", label:"Event started or over" },
+    { id:"nomoney",   label:"No funds/accounts available" },
+    { id:"flyingblind", label:"No research" },
+  ]},
+  { id:"mindset", label:"Mindset", items:[
+    { id:"streak",      label:"Keep the streak" },
+    { id:"accountable", label:"Accountability" },
+    { id:"finreal",     label:"Cost of losing again" },
+    { id:"lifetloss",   label:"Losing bettor reminder" },
+    { id:"dontreally",  label:"No real desire to bet" },
+    { id:"notgoodbet",  label:"Odds not appealing" },
+    { id:"gamblor",     label:"Recognised gambler voice" },
+  ]},
+  { id:"actions", label:"Actions", items:[
+    { id:"walkedaway",  label:"Walked away" },
+    { id:"calledsomeo", label:"Called someone" },
+  ]},
 ];
 
 const INITIAL_PB   = 7;
@@ -1023,20 +1030,27 @@ function App() {
                     <>
                       <div style={{ height:1, background:C.border, margin:"4px 0 14px" }}/>
                       <div style={base.label}>What stopped me?</div>
-                      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:6, marginBottom:14 }}>
-                        {STOPPERS.map(s=>{
-                          const active = tlog.stoppers?.includes(s.id);
-                          return (
-                            <button key={s.id} onClick={()=>toggleStopper(trackDate,s.id)}
-                              style={{ padding:"9px 12px", borderRadius:9,
-                                border:`1px solid ${active?C.green:C.border}`,
-                                background:active?C.greenDim:C.card, color:active?C.green:C.muted2,
-                                fontSize:11, fontWeight:active?600:400, cursor:"pointer", textAlign:"left" }}>
-                              {s.label}
-                            </button>
-                          );
-                        })}
-                      </div>
+                      {STOPPER_GROUPS.map(g=>(
+                        <div key={g.id}>
+                          <div style={{ fontSize:10, color:C.muted, marginBottom:6,
+                            textTransform:"uppercase", letterSpacing:"0.5px" }}>{g.label}</div>
+                          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:6, marginBottom:12 }}>
+                            {g.items.map(s=>{
+                              const active = tlog.stoppers?.includes(s.id);
+                              return (
+                                <button key={s.id} onClick={()=>toggleStopper(trackDate,s.id)}
+                                  style={{ padding:"9px 12px", borderRadius:9,
+                                    border:`1px solid ${active?C.green:C.border}`,
+                                    background:active?C.greenDim:C.card, color:active?C.green:C.muted2,
+                                    fontSize:11, fontWeight:active?600:400, cursor:"pointer", textAlign:"left" }}>
+                                  {s.label}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ))}
+                      <div style={{ height:2 }}/>
                     </>
                   )}
                 </>
