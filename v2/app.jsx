@@ -190,8 +190,6 @@ function App() {
   const [newCatName, setNewCatName] = useState("");
   const [resetStep, setResetStep]   = useState(0);
   const [backfill, setBackfill]     = useState(false);
-  const [addingTrig, setAddingTrig] = useState(false);
-  const [newTrigName, setNewTrigName] = useState("");
   const [logs, setLogs]             = useState(loadData);
   const [accounts, setAccounts]     = useState(loadAccounts);
   const [tab, setTab]               = useState("dashboard");
@@ -332,7 +330,6 @@ function App() {
   function doReset() {
     setLogs({}); setAccounts({});
     setProfile({ ...DEFAULT_PROFILE, cats:[], customCats:[], triggers:[], customTriggers:[], rates:{}, bookies:[] });
-    setAddingTrig(false); setNewTrigName("");
     setResetStep(0); setAddingCat(false); setNewCatName("");
     setTab("dashboard"); setTrackDate(todayKey());
   }
@@ -348,27 +345,20 @@ function App() {
     });
     setNewCatName(""); setAddingCat(false);
   }
-  function triggerGroupsFor(extra) {
-    const ex = extra || [];
+  function allTriggerGroups() {
     return [...TRIGGER_GROUPS, { id:"mine", label:"My own", items:(profile.customTriggers || []) }]
-      .map(g => ({ ...g, items: g.items.filter(t => (profile.triggers || []).includes(t.id) || ex.includes(t.id)) }))
       .filter(g => g.items.length > 0);
   }
-  function addCustomTrigger() {
-    const name = newTrigName.trim().slice(0,40);
-    if (!name) return;
+  function addCustomTrigger(nameRaw) {
+    const name = (nameRaw || "").trim().slice(0,40);
+    if (!name) return null;
     const slug = name.toLowerCase().replace(/[^a-z0-9]+/g,"_").replace(/^_|_$/g,"") || "x";
     const id = "t_" + slug;
     const all = [...TRIGGER_GROUPS.flatMap(g=>g.items), ...(profile.customTriggers||[])];
     const existing = all.find(t => t.id === id || t.label.toLowerCase() === name.toLowerCase());
-    setProfile(p => {
-      if (existing) return { ...p, triggers: p.triggers.includes(existing.id) ? p.triggers : [...p.triggers, existing.id] };
-      return { ...p, customTriggers:[...(p.customTriggers||[]), { id, label:name }], triggers:[...p.triggers, id] };
-    });
-    setNewTrigName(""); setAddingTrig(false);
-  }
-  function removeCustomTrigger(id) {
-    setProfile(p => ({ ...p, customTriggers:(p.customTriggers||[]).filter(t=>t.id!==id), triggers:p.triggers.filter(x=>x!==id) }));
+    if (existing) return existing.id;
+    setProfile(p => ({ ...p, customTriggers:[...(p.customTriggers||[]), { id, label:name }] }));
+    return id;
   }
   function removeCustomCat(id) {
     setProfile(p => ({ ...p, customCats:(p.customCats||[]).filter(c=>c.id!==id),
@@ -531,67 +521,6 @@ function App() {
               </button>
             </div>
           </>
-        )}
-
-        <div style={base.label}>Which of these tend to set you off?</div>
-        <div style={hint}>Choose any that apply. Only these show when you log an urge. You can change them later.</div>
-        <div style={{ display:"flex", gap:14, marginBottom:10 }}>
-          <button onClick={()=>setProfile(p=>({ ...p, triggers:[...TRIGGER_GROUPS.flatMap(g=>g.items.map(t=>t.id)), ...(p.customTriggers||[]).map(t=>t.id)] }))}
-            style={{ background:"none", border:"none", color:C.accent, fontSize:11, cursor:"pointer", padding:0 }}>Select all</button>
-          <button onClick={()=>setProfile(p=>({ ...p, triggers:[] }))}
-            style={{ background:"none", border:"none", color:C.muted2, fontSize:11, cursor:"pointer", padding:0 }}>Clear</button>
-        </div>
-        {TRIGGER_GROUPS.map(g => (
-          <div key={g.id}>
-            <div style={{ fontSize:10, color:C.muted, marginBottom:6, textTransform:"uppercase", letterSpacing:"0.5px" }}>{g.label}</div>
-            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:6, marginBottom:12 }}>
-              {g.items.map(t => {
-                const active = (profile.triggers || []).includes(t.id);
-                return (
-                  <button key={t.id} style={{ ...chip(active), fontSize:11 }}
-                    onClick={()=>setProfile(p=>({ ...p, triggers: toggleIn(p.triggers || [], t.id) }))}>
-                    {t.label}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        ))}
-        <div style={{ fontSize:10, color:C.muted, marginBottom:6, textTransform:"uppercase", letterSpacing:"0.5px" }}>My own</div>
-        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:6, marginBottom:addingTrig?10:18 }}>
-          {(profile.customTriggers || []).map(t => {
-            const active = (profile.triggers || []).includes(t.id);
-            return (
-              <div key={t.id} style={{ display:"flex" }}>
-                <button style={{ ...chip(active), fontSize:11, flex:1, borderRadius:"10px 0 0 10px", minWidth:0 }}
-                  onClick={()=>setProfile(p=>({ ...p, triggers: toggleIn(p.triggers || [], t.id) }))}>
-                  {t.label}
-                </button>
-                <button title="Remove" onClick={()=>removeCustomTrigger(t.id)}
-                  style={{ padding:"0 9px", border:`1px solid ${active?C.accent:C.border}`, borderLeft:"none",
-                    background:active?C.accentDim:C.card, color:C.muted, borderRadius:"0 10px 10px 0",
-                    cursor:"pointer", fontSize:12 }}>✕</button>
-              </div>
-            );
-          })}
-          <button onClick={()=>setAddingTrig(v=>!v)}
-            style={{ ...chip(false), fontSize:11, border:`1px dashed ${C.muted}`, color:C.muted2 }}>
-            + Add your own
-          </button>
-        </div>
-        {addingTrig && (
-          <div style={{ display:"flex", gap:8, marginBottom:18 }}>
-            <input type="text" maxLength={40} value={newTrigName}
-              onChange={e=>setNewTrigName(e.target.value)}
-              onKeyDown={e=>{ if (e.key==="Enter") addCustomTrigger(); }}
-              placeholder="e.g. Saw a rival's win"
-              style={{ flex:1, padding:"9px 12px", background:C.card, color:C.text,
-                border:`1px solid ${C.border}`, borderRadius:8, fontSize:13,
-                fontFamily:"inherit", outline:"none" }}/>
-            <button onClick={addCustomTrigger}
-              style={{ padding:"0 14px", borderRadius:8, border:"none", background:C.accent,
-                color:"#fff", fontSize:12, fontWeight:700, cursor:"pointer" }}>Add</button>
-          </div>
         )}
 
         <div style={base.label}>Do you want to set up the saving function?</div>
@@ -887,6 +816,8 @@ function App() {
     const tlog = logs[trackDate] || { gfd:false, cats:[], urge:false, triggers:[], notes:"" };
     const isFuture = trackDate > TODAY;
     const [localNotes, setLocalNotes] = useState(tlog.notes||"");
+    const [addingTrig, setAddingTrig] = useState(false);
+    const [trigName, setTrigName]     = useState("");
 
     useEffect(() => { setLocalNotes(tlog.notes||""); }, [trackDate]);
 
@@ -1042,12 +973,7 @@ function App() {
                     })}
                   </div>
                   <div style={base.label}>Triggers</div>
-                  {triggerGroupsFor(tlog.triggers || []).length === 0 && (
-                    <div style={{ fontSize:11, color:C.muted2, lineHeight:1.5, marginBottom:14 }}>
-                      No triggers chosen yet. Choose them under {savingsMode==="off" ? "Settings" : "Saved"} → Your settings.
-                    </div>
-                  )}
-                  {triggerGroupsFor(tlog.triggers || []).map(g=>(
+                  {allTriggerGroups().map(g=>(
                     <div key={g.id}>
                       <div style={{ fontSize:10, color:C.muted, marginBottom:6,
                         textTransform:"uppercase", letterSpacing:"0.5px" }}>{g.label}</div>
@@ -1067,7 +993,30 @@ function App() {
                       </div>
                     </div>
                   ))}
-                  <div style={{ height:6 }}/>
+                  {addingTrig ? (
+                    <div style={{ display:"flex", gap:8, marginBottom:14 }}>
+                      <input type="text" maxLength={40} value={trigName}
+                        onChange={e=>setTrigName(e.target.value)}
+                        placeholder="Name your own trigger"
+                        style={{ flex:1, padding:"9px 12px", background:C.card, color:C.text,
+                          border:`1px solid ${C.border}`, borderRadius:8, fontSize:13,
+                          fontFamily:"inherit", outline:"none" }}/>
+                      <button onClick={()=>{
+                          const id = addCustomTrigger(trigName);
+                          if (id) { if (!(tlog.triggers||[]).includes(id)) toggleTrigger(trackDate,id); }
+                          setTrigName(""); setAddingTrig(false);
+                        }}
+                        style={{ padding:"0 14px", borderRadius:8, border:"none", background:C.accent,
+                          color:"#fff", fontSize:12, fontWeight:700, cursor:"pointer" }}>Add</button>
+                    </div>
+                  ) : (
+                    <button onClick={()=>setAddingTrig(true)}
+                      style={{ width:"100%", padding:"9px 12px", borderRadius:9, marginBottom:14,
+                        border:`1px dashed ${C.muted}`, background:"transparent", color:C.muted2,
+                        fontSize:11, cursor:"pointer", textAlign:"left" }}>
+                      + Add your own trigger
+                    </button>
+                  )}
 
                   {/* What stopped me — only when urge=yes but didn't gamble */}
                   {(!tlog.cats || tlog.cats.length === 0) && (
