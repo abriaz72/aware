@@ -37,7 +37,7 @@ const TRIGGER_GROUPS = [
     { id:"spotted",      label:"Spotted a price or selection I fancied" },
   ]},
   { id:"money", label:"Money", items:[
-    { id:"needmoney", label:"Needed money" },
+    { id:"needmoney", label:"Specific money need (rent, a debt)" },
     { id:"fixall",    label:"Money would fix things" },
     { id:"winback",   label:"Win it back" },
     { id:"paid",      label:"Just got paid / money to spend" },
@@ -52,7 +52,8 @@ const TRIGGER_GROUPS = [
     { id:"alone",      label:"Alone at home" },
     { id:"downtime",   label:"Nothing to do / downtime" },
     { id:"escape",     label:"Wanting a break or escape from something" },
-    { id:"substances", label:"Alcohol or drugs" },
+    { id:"alcohol",    label:"Alcohol" },
+    { id:"drugs",      label:"Drugs" },
     { id:"passing",    label:"Passing a betting shop or arcade" },
   ]},
 ];
@@ -72,10 +73,17 @@ const STOPPER_GROUPS = [
     { id:"dontreally",  label:"No real desire to bet" },
     { id:"notgoodbet",  label:"Odds not appealing" },
     { id:"gamblor",     label:"Recognised gambler voice" },
+    { id:"unhealthy",   label:"Know it's unhealthy" },
+    { id:"leadstomore", label:"One bet leads to more" },
+    { id:"mentalhealth", label:"Impact on mental health" },
   ]},
   { id:"actions", label:"Actions", items:[
-    { id:"walkedaway",  label:"Walked away" },
-    { id:"calledsomeo", label:"Called someone" },
+    { id:"exercise",    label:"Exercise" },
+    { id:"read",        label:"Read" },
+    { id:"cinema",      label:"Cinema" },
+    { id:"cook",        label:"Cook" },
+    { id:"calledsomeo", label:"Call someone" },
+    { id:"podcast",     label:"Podcast" },
   ]},
 ];
 
@@ -236,7 +244,7 @@ function App() {
     setLogs(p => {
       const ex = p[dateStr] || { gfd:false, cats:[], urge:false, triggers:[] };
       const cats = ex.cats?.includes(catId) ? ex.cats.filter(c=>c!==catId) : [...(ex.cats||[]), catId];
-      return { ...p, [dateStr]: { ...ex, gfd:false, cats } };
+      return { ...p, [dateStr]: { ...ex, gfd:false, cats, urge: cats.length > 0 ? true : ex.urge } };
     });
   }
   function setUrge(dateStr, val) {
@@ -355,17 +363,6 @@ function App() {
   function allTriggerGroups() {
     return [...TRIGGER_GROUPS, { id:"mine", label:"My own", items:(profile.customTriggers || []) }]
       .filter(g => g.items.length > 0);
-  }
-  function addCustomTrigger(nameRaw) {
-    const name = (nameRaw || "").trim().slice(0,40);
-    if (!name) return null;
-    const slug = name.toLowerCase().replace(/[^a-z0-9]+/g,"_").replace(/^_|_$/g,"") || "x";
-    const id = "t_" + slug;
-    const all = [...TRIGGER_GROUPS.flatMap(g=>g.items), ...(profile.customTriggers||[])];
-    const existing = all.find(t => t.id === id || t.label.toLowerCase() === name.toLowerCase());
-    if (existing) return existing.id;
-    setProfile(p => ({ ...p, customTriggers:[...(p.customTriggers||[]), { id, label:name }] }));
-    return id;
   }
   function removeCustomCat(id) {
     setProfile(p => ({ ...p, customCats:(p.customCats||[]).filter(c=>c.id!==id),
@@ -823,14 +820,152 @@ function App() {
     const tlog = logs[trackDate] || { gfd:false, cats:[], urge:false, triggers:[], notes:"" };
     const isFuture = trackDate > TODAY;
     const [localNotes, setLocalNotes] = useState(tlog.notes||"");
-    const [addingTrig, setAddingTrig] = useState(false);
-    const [trigName, setTrigName]     = useState("");
 
     useEffect(() => { setLocalNotes(tlog.notes||""); }, [trackDate]);
 
     function saveNotes(val) {
       setLogs(p=>({ ...p, [trackDate]:{ ...p[trackDate]||{gfd:false,cats:[],urge:true,triggers:[]}, notes:val } }));
     }
+    const betDay = !tlog.gfd && !!(tlog.cats && tlog.cats.length > 0);
+    const divider = <div style={{ height:1, background:C.border, margin:"4px 0 14px" }}/>;
+
+    const strengthBlock = (
+      <>
+        <div style={base.label}>Strength of urge</div>
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:7, marginBottom:14 }}>
+          {[
+            { val:1, label:"1", desc:"Minor",    col:C.green, bg:C.greenDim },
+            { val:2, label:"2", desc:"Moderate", col:C.amber, bg:C.amberDim },
+            { val:3, label:"3", desc:"Strong",   col:C.red,   bg:"#450a0a"  },
+          ].map(opt=>{
+            const active = tlog.urgeStrength === opt.val;
+            return (
+              <button key={opt.val}
+                onClick={()=>setLogs(p=>({
+                  ...p, [trackDate]:{ ...p[trackDate]||{gfd:false,cats:[],urge:true,triggers:[]},
+                    urgeStrength: active ? null : opt.val }
+                }))}
+                style={{ padding:"5px 8px", borderRadius:10,
+                  border:`1px solid ${active?opt.col:C.border}`,
+                  background:active?opt.bg:C.card,
+                  color:active?opt.col:C.muted2,
+                  fontSize:13, fontWeight:active?700:400,
+                  cursor:"pointer", textAlign:"center" }}>
+                <div style={{ fontWeight:700, fontSize:14 }}>{opt.label}</div>
+                <div style={{ fontSize:9, opacity:0.8 }}>{opt.desc}</div>
+              </button>
+            );
+          })}
+        </div>
+      </>
+    );
+
+    const triggersBlock = (
+      <>
+        <div style={base.label}>{betDay ? "What triggered it?" : "Triggers"}</div>
+        {allTriggerGroups().map(g=>(
+          <div key={g.id}>
+            <div style={{ fontSize:10, color:C.muted, marginBottom:6,
+              textTransform:"uppercase", letterSpacing:"0.5px" }}>{g.label}</div>
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:6, marginBottom:12 }}>
+              {g.items.map(t=>{
+                const active = tlog.triggers?.includes(t.id);
+                return (
+                  <button key={t.id} onClick={()=>toggleTrigger(trackDate,t.id)}
+                    style={{ padding:"9px 12px", borderRadius:9,
+                      border:`1px solid ${active?C.red:C.border}`,
+                      background:active?"#450a0a":C.card, color:active?C.red:C.muted2,
+                      fontSize:11, fontWeight:active?600:400, cursor:"pointer", textAlign:"left" }}>
+                    {t.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+        <div style={{ height:6 }}/>
+      </>
+    );
+
+    const qualityBlock = (
+      <>
+        <div style={base.label}>How did it go?</div>
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:7, marginBottom:14 }}>
+          {[
+            { id:"measured", label:"Measured", col:C.green, bg:C.greenDim },
+            { id:"loose",    label:"Loose",    col:C.amber, bg:C.amberDim },
+            { id:"freefall", label:"Freefall", col:C.red,   bg:"#450a0a" },
+          ].map(opt=>{
+            const active = tlog.quality === opt.id;
+            return (
+              <button key={opt.id}
+                onClick={()=>setLogs(p=>({
+                  ...p,
+                  [trackDate]:{ ...p[trackDate]||{gfd:false,cats:[],urge:false,triggers:[]},
+                    quality: active ? null : opt.id }
+                }))}
+                style={{ padding:"10px 8px", borderRadius:10,
+                  border:`1px solid ${active?opt.col:C.border}`,
+                  background:active?opt.bg:C.card,
+                  color:active?opt.col:C.muted2,
+                  fontSize:12, fontWeight:active?700:400,
+                  cursor:"pointer", textAlign:"center" }}>
+                <div style={{ fontWeight:700 }}>{opt.label}</div>
+              </button>
+            );
+          })}
+        </div>
+      </>
+    );
+
+    const stoppersBlock = (
+      <>
+        <div style={base.label}>What stopped me?</div>
+        {STOPPER_GROUPS.map(g=>(
+          <div key={g.id}>
+            <div style={{ fontSize:10, color:C.muted, marginBottom:6,
+              textTransform:"uppercase", letterSpacing:"0.5px" }}>{g.label}</div>
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:6, marginBottom:12 }}>
+              {g.items.map(s=>{
+                const active = tlog.stoppers?.includes(s.id);
+                return (
+                  <button key={s.id} onClick={()=>toggleStopper(trackDate,s.id)}
+                    style={{ padding:"9px 12px", borderRadius:9,
+                      border:`1px solid ${active?C.green:C.border}`,
+                      background:active?C.greenDim:C.card, color:active?C.green:C.muted2,
+                      fontSize:11, fontWeight:active?600:400, cursor:"pointer", textAlign:"left" }}>
+                    {s.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+        <div style={{ height:2 }}/>
+      </>
+    );
+
+    const notesBlock = (
+      <>
+        <div style={{ height:1, background:C.border, margin:"4px 0 14px" }}/>
+        <div style={base.label}>Notes</div>
+        <textarea
+          maxLength={500}
+          value={localNotes}
+          onChange={e=>setLocalNotes(e.target.value)}
+          onBlur={e=>saveNotes(e.target.value)}
+          placeholder="Add any context or thoughts..."
+          style={{ width:"100%", minHeight:80, padding:"10px 12px",
+            background:C.card, border:`1px solid ${C.border}`, borderRadius:10,
+            color:C.text, fontSize:13, fontFamily:"inherit", resize:"vertical",
+            outline:"none", lineHeight:1.5 }}
+        />
+        <div style={{ fontSize:10, color:C.muted, textAlign:"right", marginTop:4, marginBottom:12 }}>
+          {localNotes.length} / 500
+        </div>
+      </>
+    );
+
     return (
       <>
         <div style={base.header}>
@@ -885,196 +1020,56 @@ function App() {
               </button>
 
               {!tlog.gfd && (
-                <>
-                  <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:7, marginBottom:14 }}>
-                    {CATEGORIES.map(cat=>{
-                      const active = tlog.cats?.includes(cat.id);
-                      return (
-                        <button key={cat.id} onClick={()=>toggleCat(trackDate,cat.id)}
-                          style={{ padding:"11px 12px", borderRadius:10,
-                            border:`1px solid ${active?C.red:C.border}`,
-                            background:active?"#450a0a":C.card, color:active?C.red:C.muted2,
-                            fontSize:12, fontWeight:active?600:400, cursor:"pointer", textAlign:"left" }}>
-                          {cat.label}
-                        </button>
-                      );
-                    })}
-                  </div>
-
-                  {tlog.cats?.length > 0 && (
-                    <>
-                      <div style={{ height:1, background:C.border, margin:"4px 0 14px" }}/>
-                      <div style={base.label}>How did it go?</div>
-                      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:7, marginBottom:14 }}>
-                        {[
-                          { id:"measured", label:"Measured", col:C.green, bg:C.greenDim },
-                          { id:"loose",    label:"Loose",    col:C.amber, bg:C.amberDim },
-                          { id:"freefall", label:"Freefall", col:C.red,   bg:"#450a0a" },
-                        ].map(opt=>{
-                          const active = tlog.quality === opt.id;
-                          return (
-                            <button key={opt.id}
-                              onClick={()=>setLogs(p=>({
-                                ...p,
-                                [trackDate]:{ ...p[trackDate]||{gfd:false,cats:[],urge:false,triggers:[]},
-                                  quality: active ? null : opt.id }
-                              }))}
-                              style={{ padding:"10px 8px", borderRadius:10,
-                                border:`1px solid ${active?opt.col:C.border}`,
-                                background:active?opt.bg:C.card,
-                                color:active?opt.col:C.muted2,
-                                fontSize:12, fontWeight:active?700:400,
-                                cursor:"pointer", textAlign:"center" }}>
-                              <div style={{ fontWeight:700 }}>{opt.label}</div>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </>
-                  )}
-                </>
+                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:7, marginBottom:14 }}>
+                  {CATEGORIES.map(cat=>{
+                    const active = tlog.cats?.includes(cat.id);
+                    return (
+                      <button key={cat.id} onClick={()=>toggleCat(trackDate,cat.id)}
+                        style={{ padding:"11px 12px", borderRadius:10,
+                          border:`1px solid ${active?C.red:C.border}`,
+                          background:active?"#450a0a":C.card, color:active?C.red:C.muted2,
+                          fontSize:12, fontWeight:active?600:400, cursor:"pointer", textAlign:"left" }}>
+                        {cat.label}
+                      </button>
+                    );
+                  })}
+                </div>
               )}
 
-              <div style={{ height:1, background:C.border, margin:"4px 0 14px" }}/>
-              <div style={base.label}>Did I feel like gambling?</div>
-              <div style={{ display:"flex", gap:8, marginBottom:12 }}>
-                {[true,false].map(val=>(
-                  <button key={String(val)} onClick={()=>setUrge(trackDate,val)}
-                    style={{ flex:1, padding:11, borderRadius:10,
-                      border:`1px solid ${tlog.urge===val?(val?C.purple:C.green):C.border}`,
-                      background:tlog.urge===val?(val?C.purpleDim:C.greenDim):C.card,
-                      color:tlog.urge===val?(val?C.purple:C.green):C.muted2,
-                      fontSize:12, fontWeight:tlog.urge===val?700:400, cursor:"pointer" }}>
-                    {val ? "Yes" : "No"}
-                  </button>
-                ))}
-              </div>
-
-              {tlog.urge && (
+              {betDay ? (
                 <>
-                  <div style={{ height:1, background:C.border, margin:"4px 0 14px" }}/>
-                  <div style={base.label}>Strength of urge</div>
-                  <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:7, marginBottom:14 }}>
-                    {[
-                      { val:1, label:"1", desc:"Minor",    col:C.green, bg:C.greenDim },
-                      { val:2, label:"2", desc:"Moderate", col:C.amber, bg:C.amberDim },
-                      { val:3, label:"3", desc:"Strong",   col:C.red,   bg:"#450a0a"  },
-                    ].map(opt=>{
-                      const active = tlog.urgeStrength === opt.val;
-                      return (
-                        <button key={opt.val}
-                          onClick={()=>setLogs(p=>({
-                            ...p, [trackDate]:{ ...p[trackDate]||{gfd:false,cats:[],urge:true,triggers:[]},
-                              urgeStrength: active ? null : opt.val }
-                          }))}
-                          style={{ padding:"5px 8px", borderRadius:10,
-                            border:`1px solid ${active?opt.col:C.border}`,
-                            background:active?opt.bg:C.card,
-                            color:active?opt.col:C.muted2,
-                            fontSize:13, fontWeight:active?700:400,
-                            cursor:"pointer", textAlign:"center" }}>
-                          <div style={{ fontWeight:700, fontSize:14 }}>{opt.label}</div>
-                          <div style={{ fontSize:9, opacity:0.8 }}>{opt.desc}</div>
-                        </button>
-                      );
-                    })}
+                  {divider}
+                  {triggersBlock}
+                  {strengthBlock}
+                  {qualityBlock}
+                  {notesBlock}
+                </>
+              ) : (
+                <>
+                  {divider}
+                  <div style={base.label}>Did I feel like gambling?</div>
+                  <div style={{ display:"flex", gap:8, marginBottom:12 }}>
+                    {[true,false].map(val=>(
+                      <button key={String(val)} onClick={()=>setUrge(trackDate,val)}
+                        style={{ flex:1, padding:11, borderRadius:10,
+                          border:`1px solid ${tlog.urge===val?(val?C.purple:C.green):C.border}`,
+                          background:tlog.urge===val?(val?C.purpleDim:C.greenDim):C.card,
+                          color:tlog.urge===val?(val?C.purple:C.green):C.muted2,
+                          fontSize:12, fontWeight:tlog.urge===val?700:400, cursor:"pointer" }}>
+                        {val ? "Yes" : "No"}
+                      </button>
+                    ))}
                   </div>
-                  <div style={base.label}>Triggers</div>
-                  {allTriggerGroups().map(g=>(
-                    <div key={g.id}>
-                      <div style={{ fontSize:10, color:C.muted, marginBottom:6,
-                        textTransform:"uppercase", letterSpacing:"0.5px" }}>{g.label}</div>
-                      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:6, marginBottom:12 }}>
-                        {g.items.map(t=>{
-                          const active = tlog.triggers?.includes(t.id);
-                          return (
-                            <button key={t.id} onClick={()=>toggleTrigger(trackDate,t.id)}
-                              style={{ padding:"9px 12px", borderRadius:9,
-                                border:`1px solid ${active?C.red:C.border}`,
-                                background:active?"#450a0a":C.card, color:active?C.red:C.muted2,
-                                fontSize:11, fontWeight:active?600:400, cursor:"pointer", textAlign:"left" }}>
-                              {t.label}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  ))}
-                  {addingTrig ? (
-                    <div style={{ display:"flex", gap:8, marginBottom:14 }}>
-                      <input type="text" maxLength={40} value={trigName}
-                        onChange={e=>setTrigName(e.target.value)}
-                        placeholder="Name your own trigger"
-                        style={{ flex:1, padding:"9px 12px", background:C.card, color:C.text,
-                          border:`1px solid ${C.border}`, borderRadius:8, fontSize:13,
-                          fontFamily:"inherit", outline:"none" }}/>
-                      <button onClick={()=>{
-                          const id = addCustomTrigger(trigName);
-                          if (id) { if (!(tlog.triggers||[]).includes(id)) toggleTrigger(trackDate,id); }
-                          setTrigName(""); setAddingTrig(false);
-                        }}
-                        style={{ padding:"0 14px", borderRadius:8, border:"none", background:C.accent,
-                          color:"#fff", fontSize:12, fontWeight:700, cursor:"pointer" }}>Add</button>
-                    </div>
-                  ) : (
-                    <button onClick={()=>setAddingTrig(true)}
-                      style={{ width:"100%", padding:"9px 12px", borderRadius:9, marginBottom:14,
-                        border:`1px dashed ${C.muted}`, background:"transparent", color:C.muted2,
-                        fontSize:11, cursor:"pointer", textAlign:"left" }}>
-                      + Add your own trigger
-                    </button>
-                  )}
-
-                  {/* What stopped me — only when urge=yes but didn't gamble */}
-                  {(!tlog.cats || tlog.cats.length === 0) && (
+                  {tlog.urge && (
                     <>
-                      <div style={{ height:1, background:C.border, margin:"4px 0 14px" }}/>
-                      <div style={base.label}>What stopped me?</div>
-                      {STOPPER_GROUPS.map(g=>(
-                        <div key={g.id}>
-                          <div style={{ fontSize:10, color:C.muted, marginBottom:6,
-                            textTransform:"uppercase", letterSpacing:"0.5px" }}>{g.label}</div>
-                          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:6, marginBottom:12 }}>
-                            {g.items.map(s=>{
-                              const active = tlog.stoppers?.includes(s.id);
-                              return (
-                                <button key={s.id} onClick={()=>toggleStopper(trackDate,s.id)}
-                                  style={{ padding:"9px 12px", borderRadius:9,
-                                    border:`1px solid ${active?C.green:C.border}`,
-                                    background:active?C.greenDim:C.card, color:active?C.green:C.muted2,
-                                    fontSize:11, fontWeight:active?600:400, cursor:"pointer", textAlign:"left" }}>
-                                  {s.label}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      ))}
-                      <div style={{ height:2 }}/>
+                      {divider}
+                      {strengthBlock}
+                      {triggersBlock}
+                      {divider}
+                      {stoppersBlock}
                     </>
                   )}
-                </>
-              )}
-
-              {/* Notes — always at bottom, appears once urge is answered */}
-              {tlog.urge !== undefined && tlog.urge !== null && (
-                <>
-                  <div style={{ height:1, background:C.border, margin:"4px 0 14px" }}/>
-                  <div style={base.label}>Notes</div>
-                  <textarea
-                    maxLength={500}
-                    value={localNotes}
-                    onChange={e=>setLocalNotes(e.target.value)}
-                    onBlur={e=>saveNotes(e.target.value)}
-                    placeholder="Add any context or thoughts..."
-                    style={{ width:"100%", minHeight:80, padding:"10px 12px",
-                      background:C.card, border:`1px solid ${C.border}`, borderRadius:10,
-                      color:C.text, fontSize:13, fontFamily:"inherit", resize:"vertical",
-                      outline:"none", lineHeight:1.5 }}
-                  />
-                  <div style={{ fontSize:10, color:C.muted, textAlign:"right", marginTop:4, marginBottom:12 }}>
-                    {localNotes.length} / 500
-                  </div>
+                  {tlog.urge !== undefined && tlog.urge !== null && notesBlock}
                 </>
               )}
             </>
