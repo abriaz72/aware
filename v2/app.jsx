@@ -68,13 +68,13 @@ const STOPPER_GROUPS = [
   { id:"mindset", label:"Mindset", items:[
     { id:"streak",      label:"Keep the streak" },
     { id:"accountable", label:"Accountability" },
-    { id:"finreal",     label:"Cost of losing again" },
+    { id:"finreal",     label:"Lifetime losses" },
     { id:"lifetloss",   label:"Losing bettor reminder" },
     { id:"dontreally",  label:"No real desire to bet" },
     { id:"notgoodbet",  label:"Odds not appealing" },
     { id:"gamblor",     label:"Recognised gambler voice" },
     { id:"unhealthy",   label:"Know it's unhealthy" },
-    { id:"leadstomore", label:"One bet leads to more" },
+    { id:"leadstomore", label:"One bet leads to another" },
     { id:"mentalhealth", label:"Impact on mental health" },
   ]},
   { id:"actions", label:"Actions", items:[
@@ -83,7 +83,7 @@ const STOPPER_GROUPS = [
     { id:"cinema",      label:"Cinema" },
     { id:"cook",        label:"Cook" },
     { id:"calledsomeo", label:"Call someone" },
-    { id:"podcast",     label:"Podcast" },
+    { id:"otheractivity", label:"Other enjoyable activity" },
   ]},
 ];
 
@@ -202,6 +202,8 @@ const NAV_ITEMS = [
 function App() {
   const [profile, setProfile]       = useState(loadProfile);
   const [addingCat, setAddingCat]   = useState(false);
+  const [showOther, setShowOther]   = useState(false);
+  const [pendingRate, setPendingRate] = useState(null);
   const [newCatName, setNewCatName] = useState("");
   const [resetStep, setResetStep]   = useState(0);
   const [backfill, setBackfill]     = useState(false);
@@ -246,6 +248,24 @@ function App() {
       const cats = ex.cats?.includes(catId) ? ex.cats.filter(c=>c!==catId) : [...(ex.cats||[]), catId];
       return { ...p, [dateStr]: { ...ex, gfd:false, cats, urge: cats.length > 0 ? true : ex.urge } };
     });
+  }
+  function addCatFromTrack(dateStr, catId) {
+    const known = profile.cats.includes(catId);
+    if (!known) setProfile(p => ({ ...p, cats:[...p.cats, catId], catAdded:{ ...(p.catAdded||{}), [catId]: dateStr } }));
+    setLogs(p => {
+      const ex = p[dateStr] || { gfd:false, cats:[], urge:false, triggers:[] };
+      const cats = ex.cats?.includes(catId) ? ex.cats : [...(ex.cats||[]), catId];
+      return { ...p, [dateStr]: { ...ex, gfd:false, cats, urge:true } };
+    });
+    setShowOther(false);
+    if (!known && savingsMode === "category") setPendingRate(catId);
+  }
+  function savePendingRate(skip) {
+    const el = document.getElementById("pendingRateInput");
+    const v = el ? el.value : "";
+    const id = pendingRate;
+    if (!skip && id && parseFloat(v) > 0) setProfile(p => ({ ...p, rates:{ ...p.rates, [id]: v } }));
+    setPendingRate(null);
   }
   function setUrge(dateStr, val) {
     setLogs(p => {
@@ -329,7 +349,9 @@ function App() {
   function catSavings(catId, from, to) {
     const rate = rateOf(catId);
     if (!rate) return null;
-    let free = 0, d = from > START_DATE ? from : START_DATE;
+    const added = (profile.catAdded && profile.catAdded[catId]) || START_DATE;
+    const first = added > START_DATE ? added : START_DATE;
+    let free = 0, d = from > first ? from : first;
     while (d <= to && d <= TODAY) {
       const log = logs[d];
       if (!log || !log.cats || !log.cats.includes(catId)) free++;
@@ -1033,6 +1055,43 @@ function App() {
                       </button>
                     );
                   })}
+                  <button onClick={()=>setShowOther(o=>!o)}
+                    style={{ padding:"11px 12px", borderRadius:10,
+                      border:`1px dashed ${showOther?C.purple:C.border}`,
+                      background:showOther?C.purpleDim:C.card, color:showOther?C.purple:C.muted2,
+                      fontSize:12, cursor:"pointer", textAlign:"left" }}>
+                    Other…
+                  </button>
+                </div>
+              )}
+
+              {!tlog.gfd && showOther && (
+                <div style={{ marginBottom:14 }}>
+                  <div style={{ fontSize:10, color:C.muted, marginBottom:6, textTransform:"uppercase", letterSpacing:"0.5px" }}>Pick the type of bet</div>
+                  <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:7 }}>
+                    {allCats.filter(c=>!CATEGORIES.some(x=>x.id===c.id)).map(cat=>(
+                      <button key={cat.id} onClick={()=>addCatFromTrack(trackDate,cat.id)}
+                        style={{ padding:"11px 12px", borderRadius:10, border:`1px solid ${C.border}`,
+                          background:C.card, color:C.muted2, fontSize:12, cursor:"pointer", textAlign:"left" }}>
+                        {cat.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {pendingRate && (
+                <div style={{ marginBottom:14, padding:12, borderRadius:10, border:`1px solid ${C.border}`, background:C.card }}>
+                  <div style={{ fontSize:12, color:C.text, marginBottom:8 }}>
+                    Daily amount for {(allCats.find(c=>c.id===pendingRate)||{}).label} (optional). Savings count from today.
+                  </div>
+                  <input id="pendingRateInput" type="number" inputMode="decimal" placeholder="e.g. 10"
+                    style={{ width:"100%", padding:"9px 12px", background:C.bg, border:`1px solid ${C.border}`,
+                      borderRadius:8, color:C.text, fontSize:13, marginBottom:8, outline:"none" }}/>
+                  <div style={{ display:"flex", gap:8 }}>
+                    <button onClick={()=>savePendingRate(false)} style={{ flex:1, padding:9, borderRadius:8, border:`1px solid ${C.green}`, background:C.greenDim, color:C.green, fontSize:12, fontWeight:700, cursor:"pointer" }}>Save</button>
+                    <button onClick={()=>savePendingRate(true)} style={{ flex:1, padding:9, borderRadius:8, border:`1px solid ${C.border}`, background:C.card, color:C.muted2, fontSize:12, cursor:"pointer" }}>Skip</button>
+                  </div>
                 </div>
               )}
 
